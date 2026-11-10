@@ -1,0 +1,12 @@
+{
+  "title": "Sample domain workflow",
+  "summary": "A runtime walkthrough of the included sample application, captured through Java Trail. The rows describe observed method entries and exits; they do not infer test assertions, method bodies or whether the application passed a test.",
+  "ideProject": "java-trail",
+  "sourceRoot": "src/test/java",
+  "keyPoints": [
+    "Observed call order on the selected thread, including method references and depth.",
+    "Completion reason, timeouts and limits; calls without recorded exits are identified.",
+    "Mocked or overridden methods require explicit declarations; no mock status is inferred from debugger events."
+  ],
+  "mockedMethods": []
+}

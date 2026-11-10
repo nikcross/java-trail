@@ -1,0 +1,54 @@
+package org.onestonesoup.javatrail;
+
+import java.nio.file.*;
+import java.io.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.*;
+
+class TraceReportTest {
+    @TempDir Path temp;
+    static final String TRACE="{\"startClass\":\"example.App\",\"startMethod\":\"run\",\"completionReason\":\"Reached maxEvents\",\"truncated\":\"true\",\"events\":["
+        +"{\"type\":\"ENTER\",\"className\":\"example.App\",\"methodName\":\"run\",\"lineNumber\":\"12\",\"depth\":\"0\",\"thread\":\"main\"},"
+        +"{\"type\":\"ENTER\",\"className\":\"example.Service\",\"methodName\":\"save\",\"depth\":\"1\"},"
+        +"{\"type\":\"EXIT\",\"className\":\"example.Service\",\"methodName\":\"save\",\"depth\":\"1\",\"durationMillis\":\"7\"}]}";
+
+    @Test void walkthroughHasPromptStyleAndExplicitPartialMockProvenance() {
+        String metadata="{\"title\":\"Save order\",\"ideProject\":\"Order App\",\"keyPoints\":[\"Call order\",\"Limits\",\"Declared mocks\"],"
+            +"\"mockedMethods\":[{\"className\":\"example.Service\",\"methodName\":\"save\",\"kind\":\"overridden\",\"notes\":\"Fixture override\"}]}";
+        String html=TraceReport.render(TRACE,metadata,"html");
+        for(String required:new String[]{"<!doctype html>","#0b0d10","#12161b","max-width:1100px","Key Highlights","Narrative Flow",
+                "Implementation References","Classes &amp; Methods Mocked/Overridden","Declared overridden","Fixture override","Calls without a recorded exit: 1",
+                "jetbrains://idea/navigate/reference?project=Order%20App&amp;path=src%2Fmain%2Fjava%2Fexample%2FApp.java%3A12",
+                "software-developer/testing/flow-test-walkthrough.prompt.txt","Agent: Codex","No test pass/fail outcome is inferred"})
+            assertTrue(html.contains(required),required);
+        assertFalse(html.contains("<script"));
+    }
+
+    @Test void escapesMetadataAndTraceValuesAndNeverCreatesJavascriptLinks() {
+        String metadata="{\"title\":\"<img src=x onerror=alert(1)>\",\"summary\":\"</p><script>alert(1)</script>\",\"sourceRoot\":\"javascript:alert(1)\"}";
+        String html=TraceReport.render(TRACE.replace("example.Service","evil<script>"),metadata,"html");
+        assertFalse(html.contains("<script>")); assertFalse(html.contains("<img src=x")); assertFalse(html.contains("href=\"javascript:"));
+        assertTrue(html.contains("&lt;script&gt;"));
+        assertTrue(html.contains("Runtime events do not establish"));
+    }
+
+    @Test void textIncludesTreeCountsAndIncompleteCallsWithoutInventedOutcomes() {
+        String text=TraceReport.render(TRACE,null,"text");
+        assertTrue(text.contains("ENTER example.Service.save"));
+        assertTrue(text.contains("entries=1 exits=1 duration=7 ms"));
+        assertTrue(text.contains("Calls without recorded exit: 1"));
+        assertTrue(text.contains("mock status unknown"));
+        assertThrows(IllegalArgumentException.class,()->TraceReport.render(TRACE,null,"pdf"));
+        assertThrows(IllegalArgumentException.class,()->TraceReport.render("{\"eventsRetained\":\"false\",\"events\":[]}",null,"html"));
+    }
+
+    @Test void offlineCliCreatesReportAndRefusesToOverwriteInput() throws Exception {
+        Path input=temp.resolve("trace.json"), output=temp.resolve("reports/trace.html"); Files.writeString(input,TRACE);
+        ByteArrayOutputStream error=new ByteArrayOutputStream();
+        assertEquals(0,JavaTrailCli.run(new String[]{"report",input.toString(),"--output",output.toString()},System.out,new PrintStream(error)));
+        assertTrue(Files.readString(output).contains("Narrative Flow"));
+        assertEquals(2,JavaTrailCli.run(new String[]{"report",input.toString(),"--output",input.toString()},System.out,new PrintStream(error)));
+        assertEquals(TRACE,Files.readString(input));
+    }
+}

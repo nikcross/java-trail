@@ -3,6 +3,9 @@ package org.onestonesoup.javatrail;
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.sun.jdi.*;
 import com.sun.jdi.connect.AttachingConnector;
@@ -15,7 +18,7 @@ import com.sun.jdi.request.MethodEntryRequest;
 import com.sun.jdi.request.MethodExitRequest;
 import com.sun.jdi.request.ModificationWatchpointRequest;
 
-public class SimpleDebugVM implements Runnable{
+public class SimpleDebugVM implements Runnable, AutoCloseable {
 
 private VirtualMachine vm;
 private Map< String, ReferenceType > referenceMap;
@@ -24,7 +27,11 @@ private final Object fieldChangeLock = new Object();
 private final List<FieldChange> pendingFieldChanges = new ArrayList<>();
 private final Object methodTraceLock = new Object();
 private final List<MethodTraceSession> methodTraceSessions = new ArrayList<>();
-private boolean running = false;
+private volatile boolean running = true;
+private final AtomicBoolean disconnected = new AtomicBoolean();
+private final List<PendingWatch> pendingWatches = new CopyOnWriteArrayList<>();
+private long droppedFieldChanges;
+private static final int MAX_PENDING_FIELD_CHANGES = 10000;
 private Thread workerThread;
 
 public SimpleDebugVM(String host, String port) throws IllegalConnectorArgumentsException, IOException {
@@ -44,16 +51,43 @@ private void connect(String host, String port) throws IllegalConnectorArgumentsE
     Connector.Argument addressArg = args.get("hostname");
     addressArg.setValue(host);
 
+    Connector.Argument timeout = args.get("timeout");
+    if (timeout != null) timeout.setValue("10000");
     vm = connector.attach(args);
+    try {
 
     List<ReferenceType> referenceTypes = vm.allClasses();
-    referenceMap = new HashMap<String, ReferenceType>();
+    referenceMap = new ConcurrentHashMap<>();
 
     for (ReferenceType referenceType : referenceTypes) {
         referenceMap.put( referenceType.name(), referenceType);
     }
 
     eventQueue = vm.eventQueue();
+    } catch (RuntimeException e) {
+        try { vm.dispose(); } catch (RuntimeException ignored) { }
+        throw e;
+    }
+}
+
+// Injection seam for event-loop failure tests; production callers attach by host/port.
+SimpleDebugVM(VirtualMachine machine) {
+    vm = machine;
+    referenceMap = new ConcurrentHashMap<>();
+    eventQueue = machine.eventQueue();
+}
+
+public boolean isConnected() { return !disconnected.get(); }
+public void close() { disconnect(); }
+
+private ReferenceType findPreparedClass(String name) {
+    for (ReferenceType type : vm.classesByName(name)) {
+        if (type.isPrepared()) {
+            referenceMap.put(name, type);
+            return type;
+        }
+    }
+    return null;
 }
 
 public VirtualMachine getVirtualMachine() {
@@ -61,6 +95,7 @@ public VirtualMachine getVirtualMachine() {
 }
 
 public String[] getMatchingClasses( String matcher, int maxValues ) {
+    for (ReferenceType type : vm.allClasses()) referenceMap.put(type.name(), type);
     List<String> found = new ArrayList<>();
 
     for(int mode=0;mode<3; mode++) {
@@ -97,7 +132,7 @@ public String[] getMatchingClasses( String matcher, int maxValues ) {
 }
 
 public String[] getFieldNames(String className) throws Exception {
-    ReferenceType type = referenceMap.get(className);
+    ReferenceType type = findPreparedClass(className);
     if(type == null) {
         throw new Exception( "class " + className + " not found" );
     }
@@ -108,23 +143,63 @@ public String[] getFieldNames(String className) throws Exception {
     return found.toArray( new String[found.size()] );
 }
 
-public ModificationWatchpointRequest watch( String className, String fieldName ) throws Exception {
+public ModificationWatchpointRequest watch(String className, String fieldName) throws Exception {
+    return watch(className, fieldName, 0);
+}
 
-    ReferenceType referenceType = referenceMap.get( className );
-    if(referenceType == null) {
-        throw new Exception( "class " + className + " not found" );
+/** Wait for a class preparation event without missing its first field writes. */
+public ModificationWatchpointRequest watch(String className, String fieldName, long waitMillis) throws Exception {
+    if (waitMillis < 0) throw new IllegalArgumentException("waitMillis must be nonnegative");
+    ReferenceType type = findPreparedClass(className);
+    if (type != null) return installWatch(type, fieldName);
+    if (waitMillis == 0) throw new IllegalArgumentException("class " + className + " not loaded; use --wait-class <milliseconds>");
+    PendingWatch pending = new PendingWatch(className, fieldName);
+    com.sun.jdi.request.ClassPrepareRequest request = vm.eventRequestManager().createClassPrepareRequest();
+    pendingWatches.add(pending);
+    try {
+        request.addClassFilter(className);
+        request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+        request.enable();
+        // Close the race between the first class lookup and enabling the request.
+        type = findPreparedClass(className);
+        if (type != null) pending.prepare(type);
+        return pending.result.get(waitMillis, TimeUnit.MILLISECONDS);
+    } catch (ExecutionException e) {
+        throw new IOException("Cannot watch " + className + "." + fieldName, e.getCause());
+    } catch (TimeoutException e) {
+        throw new IOException("Timed out waiting for class " + className);
+    } finally {
+        pending.result.cancel(false);
+        pendingWatches.remove(pending);
+        try { vm.eventRequestManager().deleteEventRequest(request); } catch (RuntimeException ignored) { }
     }
+}
 
-    for (Field field : referenceType.allFields()) {
-        if( field.name().equals(fieldName) ) {
-            EventRequestManager erm = vm.eventRequestManager();
-            ModificationWatchpointRequest modificationWatchpointRequest = erm.createModificationWatchpointRequest(field);
-            modificationWatchpointRequest.setEnabled(true);
-            return modificationWatchpointRequest;
+private ModificationWatchpointRequest installWatch(ReferenceType type, String fieldName) {
+    if (!vm.canWatchFieldModification()) throw new IllegalStateException("Target JVM does not support field modification watches");
+    for (Field field : type.allFields()) {
+        if (field.name().equals(fieldName)) {
+            ModificationWatchpointRequest request = vm.eventRequestManager().createModificationWatchpointRequest(field);
+            request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+            request.enable();
+            return request;
         }
     }
+    throw new IllegalArgumentException("field name " + fieldName + " in class " + type.name() + " not found");
+}
 
-    throw new Exception( "field name " + fieldName + " in class " + className + " not found" );
+private final class PendingWatch {
+    final String className, fieldName;
+    final CompletableFuture<ModificationWatchpointRequest> result = new CompletableFuture<>();
+    PendingWatch(String className, String fieldName) { this.className = className; this.fieldName = fieldName; }
+    synchronized void prepare(ReferenceType type) {
+        if (result.isDone()) return;
+        try {
+            ModificationWatchpointRequest request = installWatch(type, fieldName);
+            if (!result.complete(request)) vm.eventRequestManager().deleteEventRequest(request);
+        }
+        catch (RuntimeException e) { result.completeExceptionally(e); }
+    }
 }
 
 public MethodTraceSession startMethodTrace(MethodTraceConfig config) {
@@ -133,27 +208,33 @@ public MethodTraceSession startMethodTrace(MethodTraceConfig config) {
         methodTraceSessions.removeIf(MethodTraceSession::isMarkedForRemoval);
         methodTraceSessions.add(session);
     }
-    session.enableRequests();
+    try { session.enableRequests(); }
+    catch (RuntimeException e) {
+        session.requestStop("Request setup failed: " + e);
+        synchronized (methodTraceLock) { methodTraceSessions.remove(session); }
+        throw e;
+    }
     return session;
 }
 
 public void disconnect() {
+    if (!disconnected.compareAndSet(false, true)) return;
     running = false;
+    List<MethodTraceSession> sessions;
     synchronized (methodTraceLock) {
-        for(MethodTraceSession session : methodTraceSessions) {
-            session.onVmDisconnected();
-        }
+        sessions = new ArrayList<>(methodTraceSessions);
         methodTraceSessions.clear();
     }
-    if(vm != null) {
-        try {
-            vm.dispose();
-        } catch (VMDisconnectedException ignored) {
-        }
+    for (MethodTraceSession session : sessions) session.onVmDisconnected();
+    for (PendingWatch pending : pendingWatches) pending.result.completeExceptionally(new IOException("VM disconnected"));
+    if (vm != null) {
+        try { vm.dispose(); } catch (VMDisconnectedException ignored) { }
     }
-    if(workerThread != null) {
-        workerThread.interrupt();
-    }
+    if (workerThread != null) workerThread.interrupt();
+}
+
+public long getDroppedFieldChanges() {
+    synchronized (fieldChangeLock) { return droppedFieldChanges; }
 }
 
 public class FieldChange {
@@ -183,36 +264,63 @@ public class FieldChange {
     }
 
     public void run() {
-        running = true;
-
-        while( running ) {
-            try {
-                EventSet eventSet = eventQueue.remove();
-                for (Event event : eventSet) {
-                    handleEvent(event);
+        try {
+            while (running) {
+                EventSet eventSet = null;
+                try {
+                    eventSet = eventQueue.remove();
+                    if (eventSet != null) for (Event event : eventSet) handleEvent(event);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (VMDisconnectedException e) {
+                    break;
+                } catch (Exception e) {
+                    for (MethodTraceSession session : sessions()) session.requestStop("Processing failed: " + e);
+                    System.err.println("Java Trail event processing failed: " + e);
+                } finally {
+                    if (eventSet != null) {
+                        try { eventSet.resume(); }
+                        catch (VMDisconnectedException ignored) { }
+                        catch (RuntimeException e) {
+                            for (MethodTraceSession session : sessions()) session.requestStop("Processing failed: cannot resume event set: " + e);
+                            running = false;
+                        }
+                    }
                 }
-                eventSet.resume();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                running = false;
-            } catch (VMDisconnectedException e) {
-                running = false;
-            } catch (Exception e) {
-                e.printStackTrace();
             }
+        } finally {
+            disconnect();
         }
     }
 
-    private void handleEvent(Event event) throws IncompatibleThreadStateException {
+    protected void handleEvent(Event event) throws Exception {
         if (event instanceof ModificationWatchpointEvent) {
             handleWatchpoint((ModificationWatchpointEvent) event);
         } else if (event instanceof MethodEntryEvent) {
-            handleMethodEntry((MethodEntryEvent) event);
+            for (MethodTraceSession session : sessionsFor(event)) session.onMethodEntry((MethodEntryEvent) event);
         } else if (event instanceof MethodExitEvent) {
-            handleMethodExit((MethodExitEvent) event);
+            for (MethodTraceSession session : sessionsFor(event)) session.onMethodExit((MethodExitEvent) event);
+        } else if (event instanceof ClassPrepareEvent) {
+            ReferenceType type = ((ClassPrepareEvent) event).referenceType();
+            referenceMap.put(type.name(), type);
+            for (PendingWatch pending : pendingWatches) if (pending.className.equals(type.name())) pending.prepare(type);
         } else if (event instanceof VMDisconnectEvent || event instanceof VMDeathEvent) {
-            disconnect();
+            running = false;
+            for (MethodTraceSession session : sessions()) session.onVmDisconnected();
         }
+    }
+
+    private List<MethodTraceSession> sessions() {
+        synchronized (methodTraceLock) {
+            methodTraceSessions.removeIf(MethodTraceSession::isMarkedForRemoval);
+            return new ArrayList<>(methodTraceSessions);
+        }
+    }
+
+    private List<MethodTraceSession> sessionsFor(Event event) {
+        Object owner = event.request() == null ? null : event.request().getProperty("javaTrailSession");
+        return owner instanceof MethodTraceSession ? Collections.singletonList((MethodTraceSession) owner) : sessions();
     }
 
     private void handleWatchpoint(ModificationWatchpointEvent modificationWatchpointEvent) throws IncompatibleThreadStateException {
@@ -236,35 +344,8 @@ public class FieldChange {
                 shortStack.toArray(new String[shortStack.size()])
         );
         synchronized (fieldChangeLock) {
-            pendingFieldChanges.add(change);
-        }
-    }
-
-    private void handleMethodEntry(MethodEntryEvent event) {
-        synchronized (methodTraceLock) {
-            Iterator<MethodTraceSession> iterator = methodTraceSessions.iterator();
-            while(iterator.hasNext()) {
-                MethodTraceSession session = iterator.next();
-                if(session.isMarkedForRemoval()) {
-                    iterator.remove();
-                    continue;
-                }
-                session.onMethodEntry(event);
-            }
-        }
-    }
-
-    private void handleMethodExit(MethodExitEvent event) {
-        synchronized (methodTraceLock) {
-            Iterator<MethodTraceSession> iterator = methodTraceSessions.iterator();
-            while(iterator.hasNext()) {
-                MethodTraceSession session = iterator.next();
-                if(session.isMarkedForRemoval()) {
-                    iterator.remove();
-                    continue;
-                }
-                session.onMethodExit(event);
-            }
+            if (pendingFieldChanges.size() < MAX_PENDING_FIELD_CHANGES) pendingFieldChanges.add(change);
+            else droppedFieldChanges++;
         }
     }
 
@@ -287,6 +368,9 @@ public class FieldChange {
         public final boolean skipOutsideDomain;
         public final int maxDepth;
         public final long maxDurationMillis;
+        public final int maxEvents;
+        public final Consumer<MethodTraceEvent> eventSink;
+        public final boolean retainEvents;
 
         public MethodTraceConfig(String startClass,
                                  String startMethod,
@@ -296,6 +380,18 @@ public class FieldChange {
                                  boolean skipOutsideDomain,
                                  int maxDepth,
                                  long maxDurationMillis) {
+            this(startClass, startMethod, startSignature, includePackages, excludePackages,
+                    skipOutsideDomain, maxDepth, maxDurationMillis, 100000, null, true);
+        }
+
+        public MethodTraceConfig(String startClass, String startMethod, String startSignature,
+                                 List<String> includePackages, List<String> excludePackages,
+                                 boolean skipOutsideDomain, int maxDepth, long maxDurationMillis,
+                                 int maxEvents, Consumer<MethodTraceEvent> eventSink, boolean retainEvents) {
+            if (maxEvents < 1) throw new IllegalArgumentException("maxEvents must be positive");
+            this.maxEvents = maxEvents;
+            this.eventSink = eventSink;
+            this.retainEvents = retainEvents;
             this.startClass = startClass;
             this.startMethod = startMethod;
             this.startSignature = startSignature;
@@ -360,12 +456,16 @@ public class FieldChange {
         private boolean started = false;
         private boolean completed = false;
         private boolean timedOut = false;
-        private boolean markedForRemoval = false;
+        private volatile boolean markedForRemoval = false;
         private boolean startEncountered = false;
         private final long creationTime;
+        private final long creationNanos = System.nanoTime();
+        private long startNanos;
         private long traceStartTime = -1;
         private long traceEndTime = -1;
         private String completionReason = "Awaiting start method";
+        private int eventCount;
+        private boolean truncated;
 
         MethodTraceSession(MethodTraceConfig config,
                            EventRequestManager eventRequestManager) {
@@ -382,16 +482,31 @@ public class FieldChange {
         }
 
         void enableRequests() {
+            synchronized (completionMonitor) {
+                entryRequest = eventRequestManager.createMethodEntryRequest();
+                entryRequest.addClassFilter(config.startClass);
+                entryRequest.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+                entryRequest.putProperty("javaTrailSession", this);
+                entryRequest.setEnabled(true);
+            }
+        }
+
+        private void traceSelectedThread(ThreadReference thread) {
+            disableRequests();
             entryRequest = eventRequestManager.createMethodEntryRequest();
             exitRequest = eventRequestManager.createMethodExitRequest();
+            entryRequest.addThreadFilter(thread);
+            exitRequest.addThreadFilter(thread);
             entryRequest.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
             exitRequest.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
-
+            entryRequest.putProperty("javaTrailSession", this);
+            exitRequest.putProperty("javaTrailSession", this);
             entryRequest.setEnabled(true);
             exitRequest.setEnabled(true);
         }
 
         void onMethodEntry(MethodEntryEvent event) {
+            synchronized (completionMonitor) {
             if (completed) {
                 return;
             }
@@ -405,6 +520,9 @@ public class FieldChange {
                 started = true;
                 startEncountered = true;
                 tracingThread = thread;
+                traceSelectedThread(thread);
+                startNanos = System.nanoTime();
+                completionMonitor.notifyAll();
                 traceStartTime = timeSource.get();
                 completionReason = "Tracing";
                 callStack.clear();
@@ -438,9 +556,12 @@ public class FieldChange {
             }
 
             enforceLimits();
+
+            }
         }
 
         void onMethodExit(MethodExitEvent event) {
+            synchronized (completionMonitor) {
             if (completed || !started) {
                 return;
             }
@@ -491,6 +612,8 @@ public class FieldChange {
             } else {
                 enforceLimits();
             }
+
+            }
         }
 
         private void addEvent(TraceEventType type, CallFrame frame, int lineNumber, long durationMillis, String threadName) {
@@ -508,7 +631,13 @@ public class FieldChange {
                     elapsed,
                     durationMillis
             );
-            events.add(event);
+            if (config.eventSink != null) config.eventSink.accept(event);
+            eventCount++;
+            if (config.retainEvents) events.add(event);
+            if (eventCount >= config.maxEvents) {
+                truncated = true;
+                complete("Reached maxEvents", false);
+            }
         }
 
         private void enforceLimits() {
@@ -587,54 +716,72 @@ public class FieldChange {
 
         public boolean awaitCompletion(long maxWaitMillis) throws InterruptedException {
             synchronized (completionMonitor) {
-                if (completed) {
-                    return true;
-                }
-                if (maxWaitMillis <= 0) {
-                    while (!completed) {
-                        completionMonitor.wait();
-                    }
-                    return true;
-                }
-                long deadline = System.currentTimeMillis() + maxWaitMillis;
+                long overall = maxWaitMillis > 0 ? System.nanoTime() + Math.min(TimeUnit.MILLISECONDS.toNanos(maxWaitMillis), Long.MAX_VALUE / 4) : Long.MAX_VALUE;
                 while (!completed) {
-                    long remaining = deadline - System.currentTimeMillis();
+                    long phase = config.maxDurationMillis > 0 ? (started ? startNanos : creationNanos)
+                            + Math.min(TimeUnit.MILLISECONDS.toNanos(config.maxDurationMillis), Long.MAX_VALUE / 4) : Long.MAX_VALUE;
+                    long deadline = Math.min(overall, phase);
+                    if (deadline == Long.MAX_VALUE) { completionMonitor.wait(); continue; }
+                    long remaining = deadline - System.nanoTime();
                     if (remaining <= 0) {
-                        complete("Await completion timeout", true);
+                        complete(phase <= overall ? (started ? "Reached maxDurationMillis" : "Start method not reached within maxDurationMillis")
+                                : "Await completion timeout", true);
                         break;
                     }
-                    completionMonitor.wait(remaining);
+                    TimeUnit.NANOSECONDS.timedWait(completionMonitor, remaining);
                 }
-                return completed;
+                return true;
             }
         }
 
         public List<MethodTraceEvent> getEvents() {
-            return new ArrayList<>(events);
+            synchronized (completionMonitor) { return new ArrayList<>(events); }
         }
 
+        public int getEventCount() { synchronized (completionMonitor) { return eventCount; } }
+        public boolean isTruncated() { synchronized (completionMonitor) { return truncated; } }
+        public boolean isRetainingEvents() { return config.retainEvents; }
+
         public boolean isCompleted() {
+            synchronized (completionMonitor) {
             return completed;
+
+            }
         }
 
         public boolean hasStarted() {
+            synchronized (completionMonitor) {
             return startEncountered;
+
+            }
         }
 
         public long getTraceStartTime() {
+            synchronized (completionMonitor) {
             return traceStartTime;
+
+            }
         }
 
         public long getTraceEndTime() {
+            synchronized (completionMonitor) {
             return traceEndTime;
+
+            }
         }
 
         public String getCompletionReason() {
+            synchronized (completionMonitor) {
             return completionReason;
+
+            }
         }
 
         public boolean isTimedOut() {
+            synchronized (completionMonitor) {
             return timedOut;
+
+            }
         }
 
         public void requestStop(String reason) {

@@ -1,0 +1,56 @@
+Sample domain workflow — Trace Walkthrough
+
+A runtime walkthrough of the included sample application, captured through Java Trail. The rows describe observed method entries and exits; they do not infer test assertions, method bodies or whether the application passed a test.
+
+Completion: Returned to start method
+Timed out: false
+Truncated: false
+Events: 22
+Calls without recorded exit: 0
+
+Key Highlights
+- Observed call order on the selected thread, including method references and depth.
+- Completion reason, timeouts and limits; calls without recorded exits are identified.
+- Mocked or overridden methods require explicit declarations; no mock status is inferred from debugger events.
+
+Call Summary (inclusive observed durations; debugger overhead included)
+org.onestonesoup.javatrail.sample.SampleApplication.entryPoint()V | entries=1 exits=1 duration=1337 ms
+org.onestonesoup.javatrail.sample.domain.DomainWorkflow.<init>()V | entries=1 exits=1 duration=0 ms
+org.onestonesoup.javatrail.sample.domain.DomainWorkflow.executeWorkflow()V | entries=1 exits=1 duration=1139 ms
+org.onestonesoup.javatrail.sample.domain.DomainService.<init>()V | entries=1 exits=1 duration=0 ms
+org.onestonesoup.javatrail.sample.domain.DomainService.handleRequest(Ljava/lang/String;)V | entries=1 exits=1 duration=1003 ms
+org.onestonesoup.javatrail.sample.domain.DomainRepository.<init>()V | entries=1 exits=1 duration=0 ms
+org.onestonesoup.javatrail.sample.domain.DomainRepository.fetchRecord(Ljava/lang/String;)Ljava/lang/String; | entries=1 exits=1 duration=849 ms
+org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.enrich(Ljava/lang/String;)Ljava/lang/String; | entries=1 exits=1 duration=714 ms
+org.onestonesoup.javatrail.sample.domain.DomainRepository.persistRecord(Ljava/lang/String;)V | entries=1 exits=1 duration=9 ms
+org.onestonesoup.javatrail.sample.domain.DomainRepository.audit(Ljava/lang/String;)V | entries=1 exits=1 duration=9 ms
+org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.audit(Ljava/lang/String;)V | entries=1 exits=1 duration=9 ms
+
+Mocked/Overridden Methods (declared metadata)
+Not supplied; runtime events do not establish mock/override status.
+
+Narrative Flow / Call Tree
+1. ENTER org.onestonesoup.javatrail.sample.SampleApplication.entryPoint()V @ line 50 [thread=main, depth=0, +4 ms] [mock status unknown]
+2.   ENTER org.onestonesoup.javatrail.sample.domain.DomainWorkflow.<init>()V @ line 3 [thread=main, depth=1, +201 ms] [mock status unknown]
+3.   EXIT org.onestonesoup.javatrail.sample.domain.DomainWorkflow.<init>()V @ line 3 [thread=main, depth=1, +201 ms, duration=0 ms] [mock status unknown]
+4.   ENTER org.onestonesoup.javatrail.sample.domain.DomainWorkflow.executeWorkflow()V @ line 6 [thread=main, depth=1, +201 ms] [mock status unknown]
+5.     ENTER org.onestonesoup.javatrail.sample.domain.DomainService.<init>()V @ line 3 [thread=main, depth=2, +337 ms] [mock status unknown]
+6.     EXIT org.onestonesoup.javatrail.sample.domain.DomainService.<init>()V @ line 3 [thread=main, depth=2, +337 ms, duration=0 ms] [mock status unknown]
+7.     ENTER org.onestonesoup.javatrail.sample.domain.DomainService.handleRequest(Ljava/lang/String;)V @ line 6 [thread=main, depth=2, +337 ms] [mock status unknown]
+8.       ENTER org.onestonesoup.javatrail.sample.domain.DomainRepository.<init>()V @ line 5 [thread=main, depth=3, +480 ms] [mock status unknown]
+9.       EXIT org.onestonesoup.javatrail.sample.domain.DomainRepository.<init>()V @ line 5 [thread=main, depth=3, +480 ms, duration=0 ms] [mock status unknown]
+10.       ENTER org.onestonesoup.javatrail.sample.domain.DomainRepository.fetchRecord(Ljava/lang/String;)Ljava/lang/String; @ line 8 [thread=main, depth=3, +481 ms] [mock status unknown]
+11.         ENTER org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.enrich(Ljava/lang/String;)Ljava/lang/String; @ line 9 [thread=main, depth=4, +615 ms] [mock status unknown]
+12.         EXIT org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.enrich(Ljava/lang/String;)Ljava/lang/String; @ line 9 [thread=main, depth=4, +1330 ms, duration=714 ms] [mock status unknown]
+13.       EXIT org.onestonesoup.javatrail.sample.domain.DomainRepository.fetchRecord(Ljava/lang/String;)Ljava/lang/String; @ line 8 [thread=main, depth=3, +1330 ms, duration=849 ms] [mock status unknown]
+14.       ENTER org.onestonesoup.javatrail.sample.domain.DomainRepository.persistRecord(Ljava/lang/String;)V @ line 12 [thread=main, depth=3, +1330 ms] [mock status unknown]
+15.         ENTER org.onestonesoup.javatrail.sample.domain.DomainRepository.audit(Ljava/lang/String;)V @ line 18 [thread=main, depth=4, +1330 ms] [mock status unknown]
+16.           ENTER org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.audit(Ljava/lang/String;)V @ line 13 [thread=main, depth=5, +1330 ms] [mock status unknown]
+17.           EXIT org.onestonesoup.javatrail.sample.lib.ExternalLibraryHelper.audit(Ljava/lang/String;)V @ line 14 [thread=main, depth=5, +1339 ms, duration=9 ms] [mock status unknown]
+18.         EXIT org.onestonesoup.javatrail.sample.domain.DomainRepository.audit(Ljava/lang/String;)V @ line 19 [thread=main, depth=4, +1339 ms, duration=9 ms] [mock status unknown]
+19.       EXIT org.onestonesoup.javatrail.sample.domain.DomainRepository.persistRecord(Ljava/lang/String;)V @ line 15 [thread=main, depth=3, +1339 ms, duration=9 ms] [mock status unknown]
+20.     EXIT org.onestonesoup.javatrail.sample.domain.DomainService.handleRequest(Ljava/lang/String;)V @ line 9 [thread=main, depth=2, +1340 ms, duration=1003 ms] [mock status unknown]
+21.   EXIT org.onestonesoup.javatrail.sample.domain.DomainWorkflow.executeWorkflow()V @ line 8 [thread=main, depth=1, +1340 ms, duration=1139 ms] [mock status unknown]
+22. EXIT org.onestonesoup.javatrail.sample.SampleApplication.entryPoint()V @ line 52 [thread=main, depth=0, +1340 ms, duration=1337 ms] [mock status unknown]
+
+Summary: Returned to start method. 0 calls have no recorded exit; this can result from limits, cancellation or disconnection.

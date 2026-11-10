@@ -2,4 +2,4 @@ target/
 .idea/
 *.iml
 *.log
-sample-trace.json
+/sample-trace.json

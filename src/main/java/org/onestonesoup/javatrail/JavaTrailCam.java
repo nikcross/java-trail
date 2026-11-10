@@ -12,10 +12,10 @@ import java.util.List;
 import com.sun.jdi.connect.IllegalConnectorArgumentsException;
 
 import org.onestonesoup.core.data.EntityTree;
-import org.onestonesoup.core.data.JsonHelper;
 
 public class JavaTrailCam {
 
+    private final java.util.concurrent.atomic.AtomicBoolean capturing = new java.util.concurrent.atomic.AtomicBoolean();
     private volatile SimpleDebugVM activeVm;
     private volatile SimpleDebugVM.MethodTraceSession activeTraceSession;
 
@@ -28,43 +28,58 @@ public class JavaTrailCam {
     }
 
 public static void main(String[] args) throws Exception {
-    if (args.length == 0) {
-        throw new IllegalArgumentException("Usage: JavaTrailCam <config.json>");
-    }
-
+    if (args.length != 1) throw new IllegalArgumentException("Usage: JavaTrailCam <config.json>");
     Path configPath = Paths.get(args[0]).toAbsolutePath();
-    if (!Files.exists(configPath)) {
-        throw new IllegalArgumentException("Configuration file not found: " + configPath);
-    }
-
     Config config = Config.load(configPath);
+    String json = new JavaTrailCam().capture(config, null, true);
+    if (config.outputFile != null && !config.outputFile.isEmpty()) {
+        Path output = resolveOutput(configPath, config.outputFile);
+        writeOutput(output, json);
+        System.out.println("Trace written to " + output);
+    } else System.out.println(json);
+}
 
-    JavaTrailCam cam = new JavaTrailCam();
-    SimpleDebugVM vm = cam.connect(config);
+static Path resolveOutput(Path configPath, String fileName) {
+    Path output = Paths.get(fileName);
+    return (output.isAbsolute() ? output : configPath.toAbsolutePath().getParent().resolve(output)).normalize();
+}
+
+static void writeOutput(Path path, String content) throws IOException {
+    Files.createDirectories(path.toAbsolutePath().getParent());
+    Files.writeString(path, content, StandardCharsets.UTF_8);
+}
+
+/** The CLI shares the same capture path as integrations; file handling belongs to callers. */
+public String capture(Config config, java.util.function.Consumer<SimpleDebugVM.MethodTraceEvent> sink,
+                      boolean retainEvents) throws Exception {
+    if (!capturing.compareAndSet(false, true)) throw new IllegalStateException("This camera already has an active capture");
+    SimpleDebugVM vm = null;
+    Thread shutdown = null;
     try {
-        SimpleDebugVM.MethodTraceConfig traceConfig = config.toMethodTraceConfig();
-        SimpleDebugVM.MethodTraceSession session = vm.startMethodTrace(traceConfig);
-
-        long awaitMillis = config.awaitCompletionMillis > 0
-                ? config.awaitCompletionMillis
-                : config.maxDurationMillis;
+        vm = connect(config.getHost(), config.getPort());
+        activeVm = vm;
+        final SimpleDebugVM connected = vm;
+        shutdown = new Thread(connected::disconnect, "JavaTrailCam-shutdown");
+        Runtime.getRuntime().addShutdownHook(shutdown);
+        SimpleDebugVM.MethodTraceSession session = vm.startMethodTrace(config.toMethodTraceConfig(sink, retainEvents));
+        activeTraceSession = session;
+        long awaitMillis = config.awaitCompletionMillis > 0 ? config.awaitCompletionMillis : config.maxDurationMillis;
         session.awaitCompletion(awaitMillis);
-
-        List<SimpleDebugVM.MethodTraceEvent> events = session.getEvents();
-        String outputJson = buildOutput(config, session, events);
-
-        if (config.outputFile != null && !config.outputFile.isEmpty()) {
-            Path outputPath = config.outputFileIsAbsolute
-                    ? Paths.get(config.outputFile).toAbsolutePath()
-                    : configPath.getParent().resolve(config.outputFile).toAbsolutePath();
-            Files.createDirectories(outputPath.getParent());
-            Files.writeString(outputPath, outputJson, StandardCharsets.UTF_8);
-            System.out.println("Trace written to " + outputPath);
-        } else {
-            System.out.println(outputJson);
-        }
+        return buildOutput(config, session, session.getEvents(), retainEvents);
     } finally {
-        vm.disconnect();
+        activeTraceSession = null;
+        try {
+            if (vm != null) vm.disconnect();
+        } finally {
+            activeVm = null;
+            try {
+                if (shutdown != null) Runtime.getRuntime().removeShutdownHook(shutdown);
+            } catch (IllegalStateException ignored) {
+                // JVM shutdown is already running the hook.
+            } finally {
+                capturing.set(false);
+            }
+        }
     }
 }
 
@@ -73,40 +88,11 @@ public SimpleDebugVM connect(String host, String port) throws IllegalConnectorAr
 }
 
 public String processUsingConfig(String configString) {
-    SimpleDebugVM vm = null;
-
-    try {
-        Config config = Config.fromString(configString);
-        vm = connect(config.getHost(), config.getPort());
-        activeVm = vm;
-
-        SimpleDebugVM.MethodTraceConfig traceConfig = config.toMethodTraceConfig();
-        SimpleDebugVM.MethodTraceSession session = vm.startMethodTrace(traceConfig);
-        activeTraceSession = session;
-
-        long awaitMillis = config.awaitCompletionMillis > 0
-                ? config.awaitCompletionMillis
-                : config.maxDurationMillis;
-        session.awaitCompletion(awaitMillis);
-
-        List<SimpleDebugVM.MethodTraceEvent> events = session.getEvents();
-        return buildOutput(config, session, events);
-    } catch (InterruptedException e) {
+    try { return capture(Config.fromString(configString), null, true); }
+    catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        return "Exception: " + e.toString();
-    } catch (Exception e) {
-        return "Exception: " + e.toString();
-    } finally {
-        activeTraceSession = null;
-        if (vm != null) {
-            try {
-                vm.disconnect();
-            } catch (Exception ignore) {
-                // ignore disconnect issues
-            }
-        }
-        activeVm = null;
-    }
+        return "Exception: " + e;
+    } catch (Exception e) { return "Exception: " + e; }
 }
 
 public SimpleDebugVM connect(Config config) throws IllegalConnectorArgumentsException, IOException {
@@ -115,7 +101,7 @@ public SimpleDebugVM connect(Config config) throws IllegalConnectorArgumentsExce
 
 private static String buildOutput(Config config,
                                   SimpleDebugVM.MethodTraceSession session,
-                                  List<SimpleDebugVM.MethodTraceEvent> events) {
+                                  List<SimpleDebugVM.MethodTraceEvent> events, boolean retainEvents) {
     EntityTree tree = new EntityTree("javaTrailCamTrace");
     EntityTree.TreeEntity root = tree.getRoot();
 
@@ -139,7 +125,13 @@ private static String buildOutput(Config config,
         }
     }
 
-    addValue(root, "eventCount", Integer.toString(events.size()));
+    addValue(root, "eventCount", Integer.toString(Math.max(events.size(), session.getEventCount())));
+    addValue(root, "retainedEventCount", Integer.toString(events.size()));
+    addValue(root, "truncated", Boolean.toString(session.isTruncated()));
+    addValue(root, "eventsRetained", Boolean.toString(retainEvents));
+    addValue(root, "maxEvents", Integer.toString(config.maxEvents));
+    addValue(root, "failed", Boolean.toString(session.getCompletionReason().startsWith("Processing failed:")
+            || session.getCompletionReason().startsWith("Stream failed:")));
     addPackages(root.addChild("includePackages"), config.includePackages);
     addPackages(root.addChild("excludePackages"), config.excludePackages);
 
@@ -148,19 +140,30 @@ private static String buildOutput(Config config,
     for (int i = 0; i < events.size(); i++) {
         SimpleDebugVM.MethodTraceEvent event = events.get(i);
         EntityTree.TreeEntity eventNode = eventsArray.addChild(Integer.toString(i));
-        addValue(eventNode, "type", event.type.name());
-        addValue(eventNode, "className", event.className);
-        addValue(eventNode, "methodName", event.methodName);
-        addOptionalValue(eventNode, "signature", event.signature);
-        addValue(eventNode, "lineNumber", Integer.toString(event.lineNumber));
-        addValue(eventNode, "depth", Integer.toString(event.depth));
-        addOptionalValue(eventNode, "thread", event.threadName);
-        addValue(eventNode, "timestampMillis", Long.toString(event.timestampMillis));
-        addValue(eventNode, "elapsedMillis", Long.toString(event.elapsedMillis));
-        addValue(eventNode, "durationMillis", Long.toString(event.durationMillis));
+        addEventValues(eventNode, event);
     }
 
-    return JsonHelper.stringifyObject(root);
+    return TrailJson.stringifyObject(root);
+}
+
+static String eventJson(SimpleDebugVM.MethodTraceEvent event) {
+    EntityTree tree = new EntityTree("event");
+    addEventValues(tree.getRoot(), event);
+    // Compact output with escaped string controls keeps each event on one JSONL line.
+    return TrailJson.stringifyObject(tree.getRoot());
+}
+
+private static void addEventValues(EntityTree.TreeEntity node, SimpleDebugVM.MethodTraceEvent event) {
+    addValue(node, "type", event.type.name());
+    addValue(node, "className", event.className);
+    addValue(node, "methodName", event.methodName);
+    addOptionalValue(node, "signature", event.signature);
+    addValue(node, "lineNumber", Integer.toString(event.lineNumber));
+    addValue(node, "depth", Integer.toString(event.depth));
+    addOptionalValue(node, "thread", event.threadName);
+    addValue(node, "timestampMillis", Long.toString(event.timestampMillis));
+    addValue(node, "elapsedMillis", Long.toString(event.elapsedMillis));
+    addValue(node, "durationMillis", Long.toString(event.durationMillis));
 }
 
 private static void addPackages(EntityTree.TreeEntity parent, List<String> packages) {
@@ -199,6 +202,8 @@ public static final class Config {
     private final long awaitCompletionMillis;
     private final String outputFile;
     private final boolean outputFileIsAbsolute;
+    private int maxEvents = 100000;
+    private String originalJson;
 
     Config(String host,
            String port,
@@ -228,7 +233,8 @@ public static final class Config {
         this.outputFileIsAbsolute = outputFileIsAbsolute;
     }
 
-    private SimpleDebugVM.MethodTraceConfig toMethodTraceConfig() {
+    private SimpleDebugVM.MethodTraceConfig toMethodTraceConfig(
+            java.util.function.Consumer<SimpleDebugVM.MethodTraceEvent> sink, boolean retain) {
         return new SimpleDebugVM.MethodTraceConfig(
                 startClass,
                 startMethod,
@@ -237,17 +243,18 @@ public static final class Config {
                 excludePackages,
                 skipOutsideDomain,
                 maxDepth,
-                maxDurationMillis
+                maxDurationMillis, maxEvents, sink, retain
         );
     }
 
     static Config load(Path configPath) throws IOException {
+        if (!Files.isRegularFile(configPath)) throw new IllegalArgumentException("Configuration file not found: " + configPath);
         String json = Files.readString(configPath, StandardCharsets.UTF_8);
         return fromString(json);
     }
 
     public static Config fromString(String json) {
-        EntityTree tree = JsonHelper.parseObject("javaTrailCamConfig", json);
+        EntityTree tree = TraceReport.parseObject(json, "configuration");
         EntityTree.TreeEntity root = tree.getRoot();
 
         String host = getString(root, "host", "localhost");
@@ -265,7 +272,7 @@ public static final class Config {
         String outputFile = getString(root, "outputFile", null);
         boolean outputFileIsAbsolute = outputFile != null && Paths.get(outputFile).isAbsolute();
 
-        return new Config(
+        Config config = new Config(
                 host,
                 port,
                 startClass,
@@ -280,6 +287,28 @@ public static final class Config {
                 outputFile,
                 outputFileIsAbsolute
         );
+        config.maxEvents = getInt(root, "maxEvents", 100000);
+        if (host.isBlank() || startClass.isBlank() || startMethod.isBlank()) throw new IllegalArgumentException("Host, startClass and startMethod must not be blank");
+        validatePort(port);
+        if (maxDepth < -1 || maxDurationMillis < 0 || awaitCompletionMillis < 0 || config.maxEvents < 1)
+            throw new IllegalArgumentException("Invalid limits: durations must be nonnegative, maxDepth >= -1 and maxEvents positive");
+        config.originalJson = json;
+        return config;
+    }
+
+    public int getMaxEvents() { return maxEvents; }
+
+    public Config withOverrides(java.util.Map<String, String> overrides) {
+        EntityTree tree = TraceReport.parseObject(originalJson, "configuration");
+        for (java.util.Map.Entry<String,String> entry : overrides.entrySet()) addValue(tree.getRoot(), entry.getKey(), entry.getValue());
+        return fromString(TrailJson.stringifyObject(tree.getRoot()));
+    }
+
+    static void validatePort(String port) {
+        try {
+            int value = Integer.parseInt(port);
+            if (value < 1 || value > 65535) throw new NumberFormatException();
+        } catch (NumberFormatException e) { throw new IllegalArgumentException("Debug port must be a number from 1 to 65535"); }
     }
 
     private static String getRequiredString(EntityTree.TreeEntity root, String name, String message) {
@@ -327,6 +356,8 @@ public static final class Config {
         if (value == null || value.isEmpty()) {
             return defaultValue;
         }
+        if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value))
+            throw new IllegalArgumentException("Invalid boolean value for " + name + ": " + value);
         return Boolean.parseBoolean(value);
     }
 

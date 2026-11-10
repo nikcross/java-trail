@@ -38,7 +38,7 @@ public class JavaTrail {
         try {
             vm.watch( className, fieldName );
 
-            while(!Thread.currentThread().isInterrupted()) {
+            while(vm.isConnected() && !Thread.currentThread().isInterrupted()) {
                 Thread.sleep( 5000 );
 
                 SimpleDebugVM.FieldChange[] fieldChanges = vm.checkForChanges();
