@@ -45,6 +45,37 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     check(state.diagram && state.messages===Math.min(count,80),label+': SVG diagram shows observed event sequence');
     check(state.scrollRegion,label+': diagram scroll region is keyboard accessible');
     check(state.footer.includes('Agent: Codex')&&state.footer.includes('software-developer/testing/flow-test-walkthrough.prompt.txt'),label+': prompt attribution');
+    const initial = await evaluate(`(()=>{
+      const region=document.querySelector('.interaction-scroll');region.scrollTop=0;region.scrollLeft=0;
+      const heading=document.querySelector('.interaction-headings');
+      const lane=document.querySelector('.interaction-participant rect');
+      const arrow=document.querySelector('.interaction-message');
+      return {top:heading.getBoundingClientRect().top,x:lane.getBoundingClientRect().x,
+        arrowY:arrow.getBoundingClientRect().y,position:getComputedStyle(heading).position};
+    })()`);
+    check(initial.position==='sticky',label+': lane headings use sticky positioning');
+    await evaluate('document.querySelector(".interaction-scroll").scrollTop=300');await delay(60);
+    const vertical=await evaluate(`(()=>({top:document.querySelector('.interaction-headings').getBoundingClientRect().top,
+      arrowY:document.querySelector('.interaction-message').getBoundingClientRect().y,
+      scrollTop:document.querySelector('.interaction-scroll').scrollTop}))()`);
+    check(vertical.scrollTop>0 && Math.abs(vertical.top-initial.top)<1 && Math.abs((initial.arrowY-vertical.arrowY)-vertical.scrollTop)<1,
+      label+': headings remain visible while the flow scrolls vertically');
+    await evaluate('document.querySelector(".interaction-scroll").scrollLeft=220');await delay(60);
+    const horizontal=await evaluate(`(()=>{
+      const region=document.querySelector('.interaction-scroll');
+      return {left:region.scrollLeft,x:document.querySelector('.interaction-participant rect').getBoundingClientRect().x,
+        aligned:[...document.querySelectorAll('.interaction-participant')].every(participant=>{
+          const header=participant.querySelector('rect').getBoundingClientRect();
+          const line=[...document.querySelectorAll('.interaction-lifeline')].find(n=>n.dataset.participant===participant.dataset.participant).getBoundingClientRect();
+          return Math.abs(header.x+header.width/2-line.x)<1;
+        })};
+    })()`);
+    check(horizontal.left>0 && Math.abs(initial.x-horizontal.x-horizontal.left)<1,label+': headings move with horizontal scrolling');
+    check(horizontal.aligned,label+': all headings remain aligned with their lifelines after scrolling');
+    await evaluate('document.querySelector(".interaction-scroll").scrollIntoView({block:"start"})');
+    const sticky=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    fs.writeFileSync(path.join(root,'target/report-sticky-'+label+'.png'),Buffer.from(sticky.data,'base64'));
+    await evaluate('document.querySelector(".interaction-scroll").scrollTop=0;document.querySelector(".interaction-scroll").scrollLeft=0');
     await evaluate('document.querySelector(".interaction-scroll").focus()');
     check(await evaluate('document.activeElement.matches(".interaction-scroll")'),label+': diagram region accepts keyboard focus');
     await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});

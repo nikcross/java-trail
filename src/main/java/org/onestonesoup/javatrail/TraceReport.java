@@ -154,7 +154,7 @@ public final class TraceReport {
     private static String html(Data d) {
         StringBuilder out=new StringBuilder("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>");
         out.append(esc(d.title)).append(" — Test Flow Walkthrough</title><style>")
-           .append("*{box-sizing:border-box}body{margin:0;background:#0b0d10;color:#e7ecf3}.wrap{max-width:1100px;margin:0 auto;padding:40px 24px 80px;font-family:system-ui;line-height:1.6}h1{font-size:clamp(1.6rem,4vw,2.4rem);line-height:1.2}h2{font-size:1.15rem}h3{font-size:1rem}a{color:#7fb9ff;overflow-wrap:anywhere}a:focus-visible,summary:focus-visible{outline:3px solid #56e0ba;outline-offset:4px}.panel,.callout{background:#12161b;border:1px solid #293440;border-radius:10px;padding:18px;margin:18px 0}.callout{border-left:4px solid #56e0ba}.muted{color:#acb8c8}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.columns.single{grid-template-columns:1fr}.interaction-scroll{overflow:auto;max-height:700px;max-width:100%;border:1px solid #293440;border-radius:8px;background:#0b0d10;margin:18px 0}.interaction-scroll:focus-visible{outline:3px solid #56e0ba;outline-offset:3px}.interaction-scroll svg{display:block;max-width:none;font-family:system-ui}.interaction-message:focus text,.interaction-message:hover text{fill:#fff;text-decoration:underline}.badge{display:inline-block;padding:2px 8px;border-radius:4px;background:#17392f;color:#83efcc}.declared{background:#23334b;color:#a8cfff}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:20px 0}th,td{text-align:left;vertical-align:top;padding:16px;border:1px solid #293440;overflow-wrap:anywhere}th{background:#12161b;color:#83efcc}th:first-child{width:63%}code{font-size:.9em;overflow-wrap:anywhere}li{margin:6px 0}footer{border-top:1px solid #293440;margin-top:32px;padding-top:18px;font-size:.85rem;color:#acb8c8}summary{cursor:pointer;color:#7fb9ff}@media(max-width:680px){.wrap{padding:24px 14px 48px}.columns{grid-template-columns:1fr;gap:0}table,tbody,tr,td{display:block;width:100%}thead{display:none}td{padding:12px}td+td{border-top:0;margin-bottom:18px}}")
+           .append("*{box-sizing:border-box}body{margin:0;background:#0b0d10;color:#e7ecf3}.wrap{max-width:1100px;margin:0 auto;padding:40px 24px 80px;font-family:system-ui;line-height:1.6}h1{font-size:clamp(1.6rem,4vw,2.4rem);line-height:1.2}h2{font-size:1.15rem}h3{font-size:1rem}a{color:#7fb9ff;overflow-wrap:anywhere}a:focus-visible,summary:focus-visible{outline:3px solid #56e0ba;outline-offset:4px}.panel,.callout{background:#12161b;border:1px solid #293440;border-radius:10px;padding:18px;margin:18px 0}.callout{border-left:4px solid #56e0ba}.muted{color:#acb8c8}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.columns.single{grid-template-columns:1fr}.interaction-scroll{overflow:auto;max-height:700px;max-width:100%;border:1px solid #293440;border-radius:8px;background:#0b0d10;margin:18px 0}.interaction-canvas{position:relative}.interaction-headings{position:sticky;top:0;z-index:2;background:#0b0d10;box-shadow:0 1px 0 #293440}.interaction-scroll:focus-visible{outline:3px solid #56e0ba;outline-offset:3px}.interaction-scroll svg{display:block;max-width:none;font-family:system-ui}.interaction-message:focus text,.interaction-message:hover text{fill:#fff;text-decoration:underline}.badge{display:inline-block;padding:2px 8px;border-radius:4px;background:#17392f;color:#83efcc}.declared{background:#23334b;color:#a8cfff}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:20px 0}th,td{text-align:left;vertical-align:top;padding:16px;border:1px solid #293440;overflow-wrap:anywhere}th{background:#12161b;color:#83efcc}th:first-child{width:63%}code{font-size:.9em;overflow-wrap:anywhere}li{margin:6px 0}footer{border-top:1px solid #293440;margin-top:32px;padding-top:18px;font-size:.85rem;color:#acb8c8}summary{cursor:pointer;color:#7fb9ff}@media(max-width:680px){.wrap{padding:24px 14px 48px}.columns{grid-template-columns:1fr;gap:0}table,tbody,tr,td{display:block;width:100%}thead{display:none}td{padding:12px}td+td{border-top:0;margin-bottom:18px}}")
            .append("</style></head><body><main class=\"wrap\"><h1>").append(esc(d.title)).append(" — Test Flow Walkthrough</h1><p>")
            .append(esc(d.summary)).append("</p><section class=\"panel\"><h2>Context Overview</h2><ul><li>Start method: <code>")
            .append(esc(value(d.trace,"startClass","")+"."+value(d.trace,"startMethod",""))).append("</code></li><li>Completion: ")
@@ -276,11 +276,9 @@ public final class TraceReport {
         int width = Math.max(700, participants.size() * 220 + 100);
         int height = 150 + messages.size() * 46;
         out.append("<div class=\"interaction-scroll\" tabindex=\"0\" role=\"region\" aria-label=\"Interaction sequence diagram; scroll to view classes and events\">")
-           .append("<svg xmlns=\"http://www.w3.org/2000/svg\" role=\"group\" aria-labelledby=\"interaction-title interaction-description\" width=\"")
-           .append(width).append("\" height=\"").append(height).append("\" viewBox=\"0 0 ").append(width).append(' ').append(height)
-           .append("\"><title id=\"interaction-title\">Observed method interaction sequence</title><desc id=\"interaction-description\">Class lifelines with call and recorded-exit arrows. Each message links to its numbered narrative step. Unobserved callers represent gaps in the trace.</desc>")
-           .append("<defs><marker id=\"interaction-call-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"#56e0ba\"/></marker>")
-           .append("<marker id=\"interaction-return-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"#7fb9ff\"/></marker></defs>");
+           .append("<div class=\"interaction-canvas\" style=\"width:").append(width).append("px\"><div class=\"interaction-headings\">")
+           .append("<svg xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Class participant lane headings\" width=\"")
+           .append(width).append("\" height=\"80\" viewBox=\"0 0 ").append(width).append(" 80\">");
         for (Map.Entry<String, Integer> participant : participants.entrySet()) {
             int x = 110 + participant.getValue() * 220;
             String label = participantLabel(participant.getKey());
@@ -289,8 +287,18 @@ public final class TraceReport {
                .append("<text x=\"").append(x).append("\" y=\"36\" text-anchor=\"middle\" fill=\"#e7ecf3\" font-size=\"12\">")
                .append(esc(shortLabel(label.substring(label.lastIndexOf('.') + 1), 24))).append("</text><text x=\"").append(x)
                .append("\" y=\"55\" text-anchor=\"middle\" fill=\"#acb8c8\" font-size=\"10\">Participant ").append(participant.getValue() + 1)
-               .append("</text><line x1=\"").append(x).append("\" y1=\"68\" x2=\"").append(x).append("\" y2=\"")
-               .append(height - 20).append("\" stroke=\"#3b4f68\" stroke-dasharray=\"5 6\"/></g>");
+               .append("</text></g>");
+        }
+        out.append("</svg></div><svg class=\"interaction-flow\" xmlns=\"http://www.w3.org/2000/svg\" role=\"group\" aria-labelledby=\"interaction-title interaction-description\" width=\"")
+           .append(width).append("\" height=\"").append(height - 80).append("\" viewBox=\"0 80 ").append(width).append(' ').append(height - 80)
+           .append("\"><title id=\"interaction-title\">Observed method interaction sequence</title><desc id=\"interaction-description\">Class lifelines with call and recorded-exit arrows. Each message links to its numbered narrative step. Unobserved callers represent gaps in the trace.</desc>")
+           .append("<defs><marker id=\"interaction-call-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"#56e0ba\"/></marker>")
+           .append("<marker id=\"interaction-return-arrow\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"#7fb9ff\"/></marker></defs>");
+        for (Map.Entry<String, Integer> participant : participants.entrySet()) {
+            int x = 110 + participant.getValue() * 220;
+            out.append("<line class=\"interaction-lifeline\" data-participant=\"").append(esc(participant.getKey()))
+               .append("\" x1=\"").append(x).append("\" y1=\"80\" x2=\"").append(x).append("\" y2=\"")
+               .append(height - 20).append("\" stroke=\"#3b4f68\" stroke-dasharray=\"5 6\"/>");
         }
         for (int row = 0; row < messages.size(); row++) {
             DiagramMessage message = messages.get(row);
@@ -315,7 +323,7 @@ public final class TraceReport {
                .append("\" text-anchor=\"").append(self ? "start" : "middle").append("\" font-size=\"11\">")
                .append(esc(shortLabel(label, self ? 22 : 48))).append("</text></g></a>");
         }
-        out.append("</svg></div><details><summary>Participants (full class names)</summary><ol>");
+        out.append("</svg></div></div><details><summary>Participants (full class names)</summary><ol>");
         for (String participant : participants.keySet()) out.append("<li><code>").append(esc(participantLabel(participant))).append("</code></li>");
         return out.append("</ol></details></section>").toString();
     }
