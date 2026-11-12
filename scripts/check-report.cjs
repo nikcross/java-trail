@@ -33,7 +33,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
       overflow:document.documentElement.scrollWidth>innerWidth+1,steps:document.querySelectorAll('section[id^="step-"]').length,
       headers:[...document.querySelectorAll('th')].map(n=>n.textContent),mockSectionAbsent:!document.body.textContent.includes('Mocked/Overridden') && !document.body.textContent.includes('mock/override status') && !!document.querySelector('.columns.single'),
       source:[...document.querySelectorAll('a')].filter(a=>(a.getAttribute('href')||'').startsWith('jetbrains:')).map(a=>a.getAttribute('href')),scripts:document.scripts.length,
-      footer:document.querySelector('footer')?.textContent,summary:!!document.getElementById('summary'),diagram:!!document.querySelector('#interaction-diagram svg'),messages:document.querySelectorAll('.interaction-message').length,scrollRegion:!!document.querySelector('.interaction-scroll[tabindex="0"]')}))()`);
+      footerLinks:[...document.querySelectorAll('footer a')].map(a=>a.getAttribute('href')),summary:!!document.getElementById('summary'),diagram:!!document.querySelector('#interaction-diagram svg'),messages:document.querySelectorAll('.interaction-message').length,scrollRegion:!!document.querySelector('.interaction-scroll[tabindex="0"]')}))()`);
     check(state.title.endsWith('Test Flow Walkthrough'),label+': walkthrough title');
     check(state.bg==='rgb(11, 13, 16)',label+': requested dark palette');
     check(!state.overflow,label+': no horizontal overflow');
@@ -44,7 +44,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     check(state.scripts===0 && state.summary,label+': script-free report and closing summary');
     check(state.diagram && state.messages===Math.min(count,80),label+': SVG diagram shows observed event sequence');
     check(state.scrollRegion,label+': diagram scroll region is keyboard accessible');
-    check(state.footer.includes('Agent: Codex')&&state.footer.includes('software-developer/testing/flow-test-walkthrough.prompt.txt'),label+': prompt attribution');
+    check(state.footerLinks.includes('https://github.com/nikcross/java-trail')&&state.footerLinks.includes('https://tools.wet-wired.com'),label+': project and Tools footer links');
     const initial = await evaluate(`(()=>{
       const region=document.querySelector('.interaction-scroll');region.scrollTop=0;region.scrollLeft=0;
       const heading=document.querySelector('.interaction-headings');

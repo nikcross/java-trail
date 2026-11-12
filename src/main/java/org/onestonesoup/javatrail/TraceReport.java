@@ -207,7 +207,7 @@ public final class TraceReport {
         if(!future.isEmpty()) { out.append("<section><h2>Future Considerations</h2><ul>"); for(String f:future) out.append("<li>").append(esc(f)).append("</li>"); out.append("</ul></section>"); }
         out.append("<section id=\"summary\"><h2>Summary</h2><p>").append(esc(d.reason)).append(". Captured ").append(d.events.size())
            .append(" events; ").append(d.unmatchedEntries).append(" calls have no recorded exit. Limits, cancellation or disconnection may leave partial calls. No test pass/fail outcome is inferred.</p></section>")
-           .append("<footer>Generated via <a href=\"https://github.com/nikcross/ai-prompts\">https://github.com/nikcross/ai-prompts</a> — Prompt: software-developer/testing/flow-test-walkthrough.prompt.txt — Agent: Codex</footer></main></body></html>\n");
+           .append("<footer>Generated using <a href=\"https://github.com/nikcross/java-trail\">https://github.com/nikcross/java-trail</a> from <a href=\"https://tools.wet-wired.com\">tools.wet-wired.com</a></footer></main></body></html>\n");
         return out.toString();
     }
 

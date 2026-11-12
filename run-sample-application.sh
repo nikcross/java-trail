@@ -20,3 +20,4 @@ fi
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 \
   -cp target/test-classes:target/classes \
   org.onestonesoup.javatrail.sample.SampleApplication --continuous
+

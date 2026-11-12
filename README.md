@@ -4,7 +4,7 @@ Java Trail helps you see what a running Java application is doing. It connects t
 
 - **`watch`** monitors changes to a field, printing its old and new values and the stack where the change happened.
 - **`trace`** records a method invocation and the calls it makes on the same thread, producing a JSON trace with entry/exit events, stack depths and timings.
-- **`report`** turns an existing trace into a readable text call tree or a self-contained HTML walkthrough, without connecting to a JVM.
+- **`report`** turns an existing trace into a readable text call tree or a [self-contained HTML walkthrough](examples/sample-report.html), without connecting to a JVM.
 
 Use it to investigate unexpected state changes, follow a request through your code, or capture a call sequence for later analysis. It runs independently of OpenForum and can also be used as a Java library.
 

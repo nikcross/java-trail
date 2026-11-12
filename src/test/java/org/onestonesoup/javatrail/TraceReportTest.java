@@ -20,7 +20,7 @@ class TraceReportTest {
         for(String required:new String[]{"<!doctype html>","#0b0d10","#12161b","max-width:1100px","Key Highlights","Narrative Flow",
                 "Implementation References","Classes &amp; Methods Mocked/Overridden","Declared overridden","Fixture override","Calls without a recorded exit: 1",
                 "jetbrains://idea/navigate/reference?project=Order%20App&amp;path=src%2Fmain%2Fjava%2Fexample%2FApp.java%3A12",
-                "software-developer/testing/flow-test-walkthrough.prompt.txt","Agent: Codex","No test pass/fail outcome is inferred"})
+                "href=\"https://github.com/nikcross/java-trail\"","href=\"https://tools.wet-wired.com\"","No test pass/fail outcome is inferred"})
             assertTrue(html.contains(required),required);
         assertFalse(html.contains("<script"));
     }
