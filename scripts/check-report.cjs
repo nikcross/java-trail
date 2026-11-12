@@ -31,7 +31,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile});await navigate(report);
     const state=await evaluate(`(()=>({title:document.title,bg:getComputedStyle(document.body).backgroundColor,
       overflow:document.documentElement.scrollWidth>innerWidth+1,steps:document.querySelectorAll('section[id^="step-"]').length,
-      headers:[...document.querySelectorAll('th')].map(n=>n.textContent),mockText:document.body.textContent.includes('Runtime events do not establish'),
+      headers:[...document.querySelectorAll('th')].map(n=>n.textContent),mockSectionAbsent:!document.body.textContent.includes('Mocked/Overridden') && !document.body.textContent.includes('mock/override status') && !!document.querySelector('.columns.single'),
       source:[...document.querySelectorAll('a')].filter(a=>a.href.startsWith('jetbrains:')).map(a=>a.href),scripts:document.scripts.length,
       footer:document.querySelector('footer')?.textContent,summary:!!document.getElementById('summary')}))()`);
     check(state.title.endsWith('Test Flow Walkthrough'),label+': walkthrough title');
@@ -39,7 +39,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
     check(!state.overflow,label+': no horizontal overflow');
     check(state.steps===count,label+': one narrative step per observed event');
     check(state.headers.join('|')==='Narrative Flow|Implementation References',label+': narrative/reference table headings');
-    check(state.mockText,label+': unknown mock status remains explicit');
+    check(state.mockSectionAbsent,label+': mock section and labels omitted without declarations');
     check(state.source.length>0 && state.source.every(h=>new URL(h).searchParams.get('project')==='java-trail' && new URL(h).searchParams.get('path').startsWith('src/test/java/')),label+': encoded IDE project/source links');
     check(state.scripts===0 && state.summary,label+': script-free report and closing summary');
     check(state.footer.includes('Agent: Codex')&&state.footer.includes('software-developer/testing/flow-test-walkthrough.prompt.txt'),label+': prompt attribution');

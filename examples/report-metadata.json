@@ -5,8 +5,7 @@
   "sourceRoot": "src/test/java",
   "keyPoints": [
     "Observed call order on the selected thread, including method references and depth.",
-    "Completion reason, timeouts and limits; calls without recorded exits are identified.",
-    "Mocked or overridden methods require explicit declarations; no mock status is inferred from debugger events."
+    "Completion reason, timeouts and limits; calls without recorded exits are identified."
   ],
   "mockedMethods": []
 }

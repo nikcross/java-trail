@@ -224,7 +224,7 @@ Optional metadata supplies narrative context and explicit mock/override declarat
 }
 ```
 
-Declarations must name the class and method; `kind` is `mocked` or `overridden`. An optional JVM signature narrows the declaration to an overload. They are labels provided by the report author, not discoveries made by Java Trail. A declaration with no matching events is identified as unobserved. Undeclared methods show unknown mock/override status. Reports never invent assertions, application behaviour or test pass/fail outcomes.
+Declarations must name the class and method; `kind` is `mocked` or `overridden`. An optional JVM signature narrows the declaration to an overload. They are labels provided by the report author, not discoveries made by Java Trail. A declaration with no matching events is identified as unobserved. If `mockedMethods` is absent or empty, the mock/override section and per-call status labels are omitted. When declarations are supplied, other undeclared methods show unknown mock/override status. Reports never invent assertions, application behaviour or test pass/fail outcomes.
 
 When `ideProject` (or `--ide-project`) is provided, references use `jetbrains://idea/navigate/reference?project=...&path=...`. Otherwise they use repo-relative source paths. Source paths are derived from class names and `sourceRoot`, so verify them for your checkout, generated sources or custom layouts; the report does not resolve source files from the target JVM. Nested classes link to the outer source file. If moving the report outside the repository, use IDE links or account for its location when following relative references.
 

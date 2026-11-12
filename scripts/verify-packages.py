@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix='java-trail-package-') as folder:
         check(trace['timedOut']=='false' and int(trace['eventCount'])>4,'Packaged trace completes and records domain calls')
         check(trace['truncated']=='false' and trace['eventsRetained']=='true','Capture records explicit retention/limit state')
         html=report.read_text()
-        check('Narrative Flow' in html and 'Mocked/Overridden' in html and 'Agent: Codex' in html,'Capture produces walkthrough-style HTML')
+        check('Narrative Flow' in html and 'Mocked/Overridden' not in html and 'Agent: Codex' in html,'Capture produces walkthrough-style HTML')
         examples=root/'examples';examples.mkdir(exist_ok=True)
         (examples/'sample-trace.json').write_text(output.read_text())
         (examples/'sample-report.html').write_text(html)

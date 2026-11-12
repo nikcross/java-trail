@@ -30,7 +30,7 @@ class TraceReportTest {
         String html=TraceReport.render(TRACE.replace("example.Service","evil<script>"),metadata,"html");
         assertFalse(html.contains("<script>")); assertFalse(html.contains("<img src=x")); assertFalse(html.contains("href=\"javascript:"));
         assertTrue(html.contains("&lt;script&gt;"));
-        assertTrue(html.contains("Runtime events do not establish"));
+        assertFalse(html.contains("Classes &amp; Methods Mocked/Overridden"));
     }
 
     @Test void textIncludesTreeCountsAndIncompleteCallsWithoutInventedOutcomes() {
@@ -38,7 +38,7 @@ class TraceReportTest {
         assertTrue(text.contains("ENTER example.Service.save"));
         assertTrue(text.contains("entries=1 exits=1 duration=7 ms"));
         assertTrue(text.contains("Calls without recorded exit: 1"));
-        assertTrue(text.contains("mock status unknown"));
+        assertFalse(text.contains("mock status unknown"));
         assertThrows(IllegalArgumentException.class,()->TraceReport.render(TRACE,null,"pdf"));
         assertThrows(IllegalArgumentException.class,()->TraceReport.render("{\"eventsRetained\":\"false\",\"events\":[]}",null,"html"));
     }
@@ -51,4 +51,32 @@ class TraceReportTest {
         assertEquals(2,JavaTrailCli.run(new String[]{"report",input.toString(),"--output",input.toString()},System.out,new PrintStream(error)));
         assertEquals(TRACE,Files.readString(input));
     }
+    @Test void absentOrEmptyMockDeclarationsOmitSectionAndUnknownLabelsInBothFormats() {
+        for(String metadata:new String[]{null,"{}","{\"mockedMethods\":[]}"}) {
+            String html=TraceReport.render(TRACE,metadata,"html");
+            String text=TraceReport.render(TRACE,metadata,"text");
+            assertFalse(html.contains("Mocked/Overridden"));
+            assertFalse(html.contains("Not supplied"));
+            assertFalse(html.contains("mock/override status"));
+            assertTrue(html.contains("class=\"columns single\""));
+            assertTrue(html.contains("Classes &amp; Methods Called"));
+            assertFalse(text.contains("Mocked/Overridden"));
+            assertFalse(text.contains("mock status unknown"));
+            assertFalse(text.contains("Mocked or overridden methods are declared"));
+            assertTrue(text.contains("Narrative Flow / Call Tree"));
+        }
+    }
+
+    @Test void suppliedDeclarationsRetainTextSectionAndUnknownStatusForUndeclaredCalls() {
+        String metadata="{\"mockedMethods\":[{\"className\":\"example.Service\",\"methodName\":\"save\",\"kind\":\"mocked\"}]}";
+        String text=TraceReport.render(TRACE,metadata,"text");
+        String html=TraceReport.render(TRACE,metadata,"html");
+        assertTrue(text.contains("Mocked/Overridden Methods"));
+        assertTrue(text.contains("[declared mocked]"));
+        assertTrue(text.contains("[mock status unknown]"));
+        assertTrue(html.contains("Declared mocked"));
+        assertTrue(html.contains("mock/override status was not declared"));
+        assertFalse(html.contains("class=\"columns single\""));
+    }
+
 }
