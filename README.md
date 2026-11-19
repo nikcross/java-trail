@@ -8,6 +8,8 @@ Java Trail helps you see what a running Java application is doing. It connects t
 
 Use it to investigate unexpected state changes, follow a request through your code, or capture a call sequence for later analysis. It runs independently of OpenForum and can also be used as a Java library.
 
+I have now released an online tool that helps create the configuration files for java-trail to investigate flows in your Java code on my [tools website](https://tools.wet-wired.com/JavaTrailBuilder) . It can also be used as an [MCP service](https://tools.wet-wired.com/MCPService#Setup%20Instructions) 
+
 ## Requirements
 
 - A full **JDK 11 or newer**, including the `jdk.jdi` module.
